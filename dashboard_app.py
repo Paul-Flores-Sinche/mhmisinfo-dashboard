@@ -1,0 +1,826 @@
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+import os
+import re
+
+# ═══════════════════════════════════════════════════════════════════
+# PAGE CONFIG
+# ═══════════════════════════════════════════════════════════════════
+st.set_page_config(
+    page_title="MHMisinfo Analytics",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ═══════════════════════════════════════════════════════════════════
+# CSS THEME — Dark CRM / Purple-Navy
+# ═══════════════════════════════════════════════════════════════════
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ── Global ── */
+*, *::before, *::after { font-family: 'Inter', sans-serif !important; }
+
+.stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+    background-color: #0f0e17 !important;
+    color: #e2e8f0;
+}
+[data-testid="stMainBlockContainer"] { background-color: #0f0e17 !important; }
+
+/* ── Sidebar ── */
+section[data-testid="stSidebar"] {
+    background-color: #1a1830 !important;
+    border-right: 1px solid rgba(124, 58, 237, 0.2);
+}
+section[data-testid="stSidebar"] * { color: #e2e8f0 !important; }
+section[data-testid="stSidebar"] hr { border-color: rgba(124, 58, 237, 0.2) !important; }
+
+/* ── Headings ── */
+h1, h2, h3, h4, h5 { color: #e2e8f0 !important; font-weight: 600 !important; }
+p, li, label, .stMarkdown { color: #e2e8f0; }
+hr { border-color: rgba(124, 58, 237, 0.2) !important; }
+small { color: #94a3b8; }
+code { background: rgba(124, 58, 237, 0.15) !important; color: #a78bfa !important; border-radius: 4px; padding: 1px 5px; }
+
+/* ── Metric containers (Tab 2) ── */
+[data-testid="metric-container"] {
+    background: #1a1830 !important;
+    border: 1px solid rgba(124, 58, 237, 0.3) !important;
+    border-radius: 12px;
+    padding: 18px 16px !important;
+    box-shadow: 0 0 16px rgba(124, 58, 237, 0.08);
+}
+[data-testid="metric-container"] label {
+    color: #94a3b8 !important;
+    font-size: 0.78rem !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+[data-testid="metric-container"] [data-testid="metric-value"] {
+    color: #7c3aed !important;
+    font-size: 1.8rem !important;
+    font-weight: 700 !important;
+}
+[data-testid="metric-container"] [data-testid="metric-delta"] { font-size: 0.78rem !important; }
+
+/* ── Tabs ── */
+[data-baseweb="tab-list"] {
+    background: transparent !important;
+    border-bottom: 1px solid rgba(124, 58, 237, 0.2);
+    gap: 4px;
+}
+[data-baseweb="tab"] {
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+    color: #94a3b8 !important;
+    background: transparent !important;
+    border-radius: 8px 8px 0 0;
+    padding: 8px 16px !important;
+}
+[data-baseweb="tab"]:hover { color: #a78bfa !important; background: rgba(124, 58, 237, 0.08) !important; }
+[data-baseweb="tab"][aria-selected="true"] {
+    color: #7c3aed !important;
+    background: rgba(124, 58, 237, 0.12) !important;
+    border-bottom: 2px solid #7c3aed !important;
+}
+
+/* ── Inputs ── */
+[data-baseweb="select"] > div {
+    background-color: #1a1830 !important;
+    border-color: rgba(124, 58, 237, 0.3) !important;
+    border-radius: 8px !important;
+}
+[data-baseweb="select"] span { color: #e2e8f0 !important; }
+[data-baseweb="popover"] [role="option"] { background-color: #1a1830 !important; }
+[data-baseweb="popover"] [role="option"]:hover { background-color: rgba(124, 58, 237, 0.15) !important; }
+textarea, [data-baseweb="textarea"] textarea {
+    background-color: #1a1830 !important;
+    color: #e2e8f0 !important;
+    border-color: rgba(124, 58, 237, 0.3) !important;
+    border-radius: 8px !important;
+}
+
+/* ── Buttons ── */
+[data-testid="baseButton-primary"] {
+    background: linear-gradient(135deg, #7c3aed, #06b6d4) !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    border: none !important;
+    border-radius: 8px !important;
+}
+[data-testid="baseButton-primary"]:disabled {
+    background: #1a1830 !important;
+    color: #94a3b8 !important;
+}
+
+/* ── Multiselect tags ── */
+[data-testid="stMultiSelect"] [data-baseweb="tag"] {
+    background-color: rgba(124, 58, 237, 0.2) !important;
+    border: 1px solid rgba(124, 58, 237, 0.4) !important;
+}
+
+/* ── Info/warn alerts ── */
+[data-testid="stAlert"] { background-color: #1a1830 !important; border-radius: 8px; }
+
+/* ══ KPI CARDS ══ */
+.kpi-gradient {
+    background: linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%);
+    border: 1px solid rgba(124, 58, 237, 0.5);
+    border-radius: 14px;
+    padding: 22px 18px;
+    text-align: center;
+    margin-top: 6px;
+    box-shadow: 0 0 24px rgba(124, 58, 237, 0.2), 0 2px 8px rgba(0,0,0,0.4);
+}
+.kpi-solid {
+    background: #1e1b4b;
+    border: 1px solid rgba(124, 58, 237, 0.3);
+    border-radius: 14px;
+    padding: 22px 18px;
+    text-align: center;
+    margin-top: 6px;
+    box-shadow: 0 0 16px rgba(124, 58, 237, 0.1), 0 2px 8px rgba(0,0,0,0.3);
+}
+.kpi-value-light {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin: 0;
+    line-height: 1.2;
+}
+.kpi-value-accent {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #06b6d4;
+    margin: 0;
+    line-height: 1.2;
+}
+.kpi-label {
+    font-size: 0.72rem;
+    color: rgba(255,255,255,0.7);
+    margin-top: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 500;
+}
+.kpi-label-dark {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    margin-top: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 500;
+}
+
+/* ══ GENERIC CARD ══ */
+.card {
+    background: #1a1830;
+    border: 1px solid rgba(124, 58, 237, 0.3);
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: 0 0 16px rgba(124, 58, 237, 0.08);
+}
+
+/* ══ BADGES ══ */
+.badge {
+    display: inline-block;
+    padding: 3px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.badge-purple { background: rgba(124,58,237,0.15); color: #a78bfa; border: 1px solid rgba(124,58,237,0.35); }
+.badge-teal   { background: rgba(6,182,212,0.15);  color: #22d3ee; border: 1px solid rgba(6,182,212,0.35); }
+
+/* ══ INFO / WARN BOXES ══ */
+.info-box {
+    background: rgba(124, 58, 237, 0.08);
+    border-left: 3px solid #7c3aed;
+    border-radius: 0 8px 8px 0;
+    padding: 12px 16px;
+    margin: 6px 0;
+    font-size: 0.9rem;
+    color: #e2e8f0;
+}
+.warn-box {
+    background: rgba(236, 72, 153, 0.08);
+    border-left: 3px solid #ec4899;
+    border-radius: 0 8px 8px 0;
+    padding: 12px 16px;
+    margin: 6px 0;
+    font-size: 0.9rem;
+    color: #e2e8f0;
+}
+
+/* ══ COMMENT SAMPLE CARDS ══ */
+.comment-card-pink {
+    background: rgba(236, 72, 153, 0.06);
+    border-left: 3px solid #ec4899;
+    border-radius: 0 6px 6px 0;
+    padding: 9px 13px;
+    margin: 5px 0;
+    font-size: 0.82rem;
+    color: #e2e8f0;
+    line-height: 1.55;
+}
+.comment-card-teal {
+    background: rgba(6, 182, 212, 0.06);
+    border-left: 3px solid #06b6d4;
+    border-radius: 0 6px 6px 0;
+    padding: 9px 13px;
+    margin: 5px 0;
+    font-size: 0.82rem;
+    color: #e2e8f0;
+    line-height: 1.55;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════════════
+# CONSTANTS
+# ═══════════════════════════════════════════════════════════════════
+MODEL_RESULTS = {
+    "RoBERTa": {
+        "base":       "roberta-base",
+        "macro_f1":   0.76,
+        "accuracy":   0.75,
+        "color":      "#7c3aed",
+        "misinfo":    {"precision": 0.72, "recall": 0.79, "f1": 0.76, "support": 1000},
+        "legit":      {"precision": 0.77, "recall": 0.70, "f1": 0.73, "support": 1000},
+        "cm":         [[790, 210], [300, 700]],
+        "train_loss": [0.5906, 0.4741, 0.3796],
+    },
+    "MentalBERT": {
+        "base":       "mental/mental-bert-base-uncased",
+        "macro_f1":   0.77,
+        "accuracy":   0.77,
+        "color":      "#06b6d4",
+        "misinfo":    {"precision": 0.78, "recall": 0.76, "f1": 0.77, "support": 1000},
+        "legit":      {"precision": 0.77, "recall": 0.79, "f1": 0.78, "support": 1000},
+        "cm":         [[760, 240], [210, 790]],
+        "train_loss": [0.5426, 0.3783, 0.2149],
+    },
+}
+
+MISINFO_CATEGORIES = {
+    "Stigma / Dismissal":       {"count": 6572, "color": "#ec4899"},
+    "Conspiracy / Anti-estab.": {"count": 3575, "color": "#7c3aed"},
+    "Harmful Advice":           {"count": 1939, "color": "#06b6d4"},
+    "Anti-Medication":          {"count": 1170, "color": "#a78bfa"},
+    "Alternative Treatment":    {"count": 665,  "color": "#22d3ee"},
+}
+
+# Fully transparent backgrounds — charts float on the page bg
+CHART_LAYOUT = dict(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(color="#e2e8f0", family="Inter"),
+    margin=dict(l=10, r=10, t=16, b=10),
+    legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="rgba(124,58,237,0.2)", borderwidth=1),
+)
+GRID = dict(gridcolor="#2d2b55", linecolor="#2d2b55")
+
+# ═══════════════════════════════════════════════════════════════════
+# DATA LOADING
+# ═══════════════════════════════════════════════════════════════════
+DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+@st.cache_data(show_spinner="Loading dataset…")
+def load_data():
+    comments = pd.read_csv(os.path.join(DATA_DIR, "comments_MHMisinfo_Gold.csv"))
+    videos   = pd.read_csv(os.path.join(DATA_DIR, "videos_MHMisinfo_Gold.csv"))
+    comments["date"]       = pd.to_datetime(comments["comment_publish_date"], unit="s", errors="coerce")
+    comments["year_month"] = comments["date"].dt.to_period("M").astype(str)
+    comments["is_misinfo"] = comments["label"] == -1
+    videos["is_misinfo"]   = videos["label"] == -1
+    return comments, videos
+
+
+comments_df, videos_df = load_data()
+
+
+def clean_text(text, max_len=220):
+    text = re.sub(r"<[^>]+>", "", str(text))
+    text = re.sub(r"http\S+", "", text).strip()
+    return text[:max_len] + ("…" if len(text) > max_len else "")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SIDEBAR
+# ═══════════════════════════════════════════════════════════════════
+with st.sidebar:
+    st.markdown("## 🧠 MHMisinfo")
+    st.markdown("Mental Health Misinformation  \nVisual Analytics Dashboard")
+    st.markdown("---")
+
+    st.markdown("### 🤖 Model")
+    selected_model = st.selectbox(
+        "Select classifier",
+        options=list(MODEL_RESULTS.keys()),
+        index=0,
+        help="All model-performance sections update to reflect the selected model.",
+    )
+    m = MODEL_RESULTS[selected_model]
+    badge_cls = "badge-purple" if selected_model == "RoBERTa" else "badge-teal"
+    st.markdown(
+        f'<span class="badge {badge_cls}">{selected_model}</span> '
+        f'<small style="color:#94a3b8">Macro F1 = {m["macro_f1"]:.2f}</small>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("---")
+    st.markdown("### 🔎 Filters")
+    platform_filter = st.multiselect(
+        "Platform",
+        options=["Youtube", "Bitchute"],
+        default=["Youtube", "Bitchute"],
+    )
+
+    st.markdown("---")
+    st.markdown("### 📦 Dataset")
+    st.markdown(
+        '<div class="info-box"><b>Gold Comments</b><br>135,445 records'
+        '<br><span style="color:#94a3b8;font-size:0.82rem">8,025 misinfo · 127,420 legit</span></div>'
+        '<div class="info-box" style="border-color:#06b6d4;background:rgba(6,182,212,0.08);margin-top:6px">'
+        '<b>Gold Videos</b><br>739 records'
+        '<br><span style="color:#94a3b8;font-size:0.82rem">120 misinfo · 619 legit</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("---")
+    st.caption("PRT840 IT Thesis · CDU · 2026\nPaul S. Flores Sinche (S386377)")
+
+# Apply filters
+fc = comments_df[comments_df["platform"].isin(platform_filter)] if platform_filter else comments_df
+fv = videos_df[videos_df["platform"].isin(platform_filter)]     if platform_filter else videos_df
+
+# ═══════════════════════════════════════════════════════════════════
+# HEADER
+# ═══════════════════════════════════════════════════════════════════
+st.markdown("## AI-Driven Visual Analytics")
+st.markdown(
+    "**Mental Health Misinformation on Social Media** &nbsp;·&nbsp; "
+    "MHMisinfo Dataset &nbsp;·&nbsp; RoBERTa & MentalBERT",
+    unsafe_allow_html=True,
+)
+st.markdown("---")
+
+# ═══════════════════════════════════════════════════════════════════
+# TABS
+# ═══════════════════════════════════════════════════════════════════
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊  Overview",
+    "🤖  Model Performance",
+    "🔍  Pattern Analysis",
+    "⚡  Live Classifier",
+])
+
+# ───────────────────────────────────────────────────────────────────
+# TAB 1 — OVERVIEW
+# ───────────────────────────────────────────────────────────────────
+with tab1:
+    total       = len(fc)
+    n_misinfo   = int(fc["is_misinfo"].sum())
+    misinfo_pct = n_misinfo / total * 100 if total else 0
+    n_platforms = len(fc["platform"].unique())
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(
+            f'<div class="kpi-gradient">'
+            f'<p class="kpi-value-light">{total:,}</p>'
+            f'<p class="kpi-label">Comments Analysed</p></div>',
+            unsafe_allow_html=True,
+        )
+    with c2:
+        st.markdown(
+            f'<div class="kpi-gradient">'
+            f'<p class="kpi-value-light">{misinfo_pct:.1f}%</p>'
+            f'<p class="kpi-label">Misinformation Rate</p></div>',
+            unsafe_allow_html=True,
+        )
+    with c3:
+        st.markdown(
+            f'<div class="kpi-solid">'
+            f'<p class="kpi-value-accent">{n_misinfo:,}</p>'
+            f'<p class="kpi-label-dark">Misinfo Comments</p></div>',
+            unsafe_allow_html=True,
+        )
+    with c4:
+        st.markdown(
+            f'<div class="kpi-solid">'
+            f'<p class="kpi-value-accent">{n_platforms}</p>'
+            f'<p class="kpi-label-dark">Platforms</p></div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    col_l, col_r = st.columns(2)
+
+    with col_l:
+        st.markdown("#### Comment Composition by Platform (%)")
+        plat = (
+            fc.groupby("platform")
+            .agg(legit=("is_misinfo", lambda x: (~x).sum()), misinfo=("is_misinfo", "sum"))
+            .reset_index()
+        )
+        plat["total"]       = plat["legit"] + plat["misinfo"]
+        plat["legit_pct"]   = plat["legit"]   / plat["total"] * 100
+        plat["misinfo_pct"] = plat["misinfo"] / plat["total"] * 100
+
+        fig_stack = go.Figure()
+        fig_stack.add_trace(go.Bar(
+            name="Legitimate", x=plat["platform"], y=plat["legit_pct"],
+            marker_color="#06b6d4", opacity=0.9,
+            text=plat["legit_pct"].map("{:.1f}%".format), textposition="inside",
+            textfont=dict(color="#ffffff"),
+        ))
+        fig_stack.add_trace(go.Bar(
+            name="Misinformation", x=plat["platform"], y=plat["misinfo_pct"],
+            marker_color="#ec4899", opacity=0.9,
+            text=plat["misinfo_pct"].map("{:.1f}%".format), textposition="inside",
+            textfont=dict(color="#ffffff"),
+        ))
+        fig_stack.update_layout(
+            **CHART_LAYOUT, barmode="stack", height=300,
+            xaxis=GRID,
+            yaxis=dict(**GRID, title="% of Comments", range=[0, 100]),
+        )
+        st.plotly_chart(fig_stack, use_container_width=True)
+
+    with col_r:
+        st.markdown("#### Misinformation Rate by Platform (Full Dataset)")
+        fig_rate = go.Figure(go.Bar(
+            x=["YouTube", "Bitchute"],
+            y=[11.6, 5.5],
+            marker_color=["#06b6d4", "#7c3aed"],
+            text=["11.6%", "5.5%"],
+            textposition="outside",
+            textfont=dict(color="#e2e8f0", size=14),
+        ))
+        fig_rate.update_layout(
+            **CHART_LAYOUT, height=300,
+            yaxis=dict(**GRID, title="Misinfo Rate (%)", range=[0, 16]),
+            xaxis=GRID,
+        )
+        fig_rate.add_annotation(
+            text="Source: Full dataset · 582,362 comments",
+            xref="paper", yref="paper", x=0.5, y=-0.14,
+            showarrow=False, font=dict(size=10, color="#94a3b8"),
+        )
+        st.plotly_chart(fig_rate, use_container_width=True)
+
+    col_d1, col_d2 = st.columns(2)
+
+    with col_d1:
+        st.markdown("#### Comment Labels")
+        fig_c = go.Figure(go.Pie(
+            values=[int((~fc["is_misinfo"]).sum()), n_misinfo],
+            labels=["Legitimate", "Misinformation"],
+            hole=0.55,
+            marker=dict(colors=["#06b6d4", "#ec4899"]),
+            textinfo="label+percent",
+            textfont=dict(color="#e2e8f0"),
+        ))
+        fig_c.update_layout(**CHART_LAYOUT, height=260)
+        st.plotly_chart(fig_c, use_container_width=True)
+
+    with col_d2:
+        st.markdown("#### Video Labels")
+        fig_v = go.Figure(go.Pie(
+            values=[int((~fv["is_misinfo"]).sum()), int(fv["is_misinfo"].sum())],
+            labels=["Legitimate", "Misinformation"],
+            hole=0.55,
+            marker=dict(colors=["#7c3aed", "#ec4899"]),
+            textinfo="label+percent",
+            textfont=dict(color="#e2e8f0"),
+        ))
+        fig_v.update_layout(**CHART_LAYOUT, height=260)
+        st.plotly_chart(fig_v, use_container_width=True)
+
+# ───────────────────────────────────────────────────────────────────
+# TAB 2 — MODEL PERFORMANCE
+# ───────────────────────────────────────────────────────────────────
+with tab2:
+    other_name = "MentalBERT" if selected_model == "RoBERTa" else "RoBERTa"
+    other      = MODEL_RESULTS[other_name]
+
+    st.markdown(f"#### {selected_model} — Performance Metrics")
+    st.markdown(
+        f'<span class="badge {badge_cls}">{selected_model}</span> &nbsp; '
+        f'<code>{m["base"]}</code> &nbsp;·&nbsp; '
+        f'<small>Test set: 2,000 samples · 3 epochs · lr=2e-5</small>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    with mc1:
+        st.metric("Macro F1",          f"{m['macro_f1']:.2f}",
+                  delta=f"{m['macro_f1'] - other['macro_f1']:+.2f} vs {other_name}")
+    with mc2:
+        st.metric("Accuracy",          f"{m['accuracy']:.2f}",
+                  delta=f"{m['accuracy'] - other['accuracy']:+.2f} vs {other_name}")
+    with mc3:
+        st.metric("Misinfo Precision", f"{m['misinfo']['precision']:.2f}",
+                  delta=f"{m['misinfo']['precision'] - other['misinfo']['precision']:+.2f}")
+    with mc4:
+        st.metric("Misinfo Recall",    f"{m['misinfo']['recall']:.2f}",
+                  delta=f"{m['misinfo']['recall'] - other['misinfo']['recall']:+.2f}")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        st.markdown("##### Per-Class Metrics")
+        metrics   = ["Precision", "Recall", "F1-Score"]
+        m_misinfo = [m["misinfo"]["precision"], m["misinfo"]["recall"], m["misinfo"]["f1"]]
+        m_legit   = [m["legit"]["precision"],   m["legit"]["recall"],   m["legit"]["f1"]]
+
+        fig_cls = go.Figure()
+        fig_cls.add_trace(go.Bar(
+            name="Misinformation", x=metrics, y=m_misinfo,
+            marker_color="#ec4899", opacity=0.9,
+            text=[f"{v:.2f}" for v in m_misinfo], textposition="outside",
+            textfont=dict(color="#e2e8f0"),
+        ))
+        fig_cls.add_trace(go.Bar(
+            name="Legitimate", x=metrics, y=m_legit,
+            marker_color=m["color"], opacity=0.9,
+            text=[f"{v:.2f}" for v in m_legit], textposition="outside",
+            textfont=dict(color="#e2e8f0"),
+        ))
+        fig_cls.update_layout(
+            **CHART_LAYOUT, barmode="group", height=330,
+            xaxis=GRID,
+            yaxis=dict(**GRID, range=[0, 0.96]),
+        )
+        st.plotly_chart(fig_cls, use_container_width=True)
+
+    with col_b:
+        st.markdown("##### Confusion Matrix")
+        cm     = m["cm"]
+        z_text = [[str(v) for v in row] for row in cm]
+        fig_cm = go.Figure(go.Heatmap(
+            z=cm,
+            x=["Predicted: Misinfo", "Predicted: Legit"],
+            y=["Actual: Misinfo", "Actual: Legit"],
+            colorscale=[[0, "#1e1b4b"], [1, m["color"]]],
+            showscale=False,
+            text=z_text,
+            texttemplate="<b>%{text}</b>",
+            textfont=dict(size=20, color="#e2e8f0"),
+        ))
+        fig_cm.update_layout(
+            **CHART_LAYOUT, height=330,
+            xaxis=dict(**GRID, side="top"),
+            yaxis=dict(**GRID, autorange="reversed"),
+        )
+        st.plotly_chart(fig_cm, use_container_width=True)
+
+    st.markdown("##### Training Loss — All Epochs")
+    fig_loss = go.Figure()
+    for name, res in MODEL_RESULTS.items():
+        is_sel = name == selected_model
+        fig_loss.add_trace(go.Scatter(
+            x=[1, 2, 3], y=res["train_loss"],
+            name=name, mode="lines+markers",
+            line=dict(color=res["color"], width=3 if is_sel else 1.5),
+            marker=dict(size=9 if is_sel else 6),
+            opacity=1.0 if is_sel else 0.3,
+        ))
+    fig_loss.update_layout(
+        **CHART_LAYOUT, height=220,
+        xaxis=dict(**GRID, title="Epoch", tickvals=[1, 2, 3]),
+        yaxis=dict(**GRID, title="Training Loss"),
+    )
+    st.plotly_chart(fig_loss, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("##### Side-by-Side Comparison")
+    comp1, comp2 = st.columns(2)
+    for col, (name, res) in zip([comp1, comp2], MODEL_RESULTS.items()):
+        bc    = "badge-purple" if name == "RoBERTa" else "badge-teal"
+        glow  = f"box-shadow: 0 0 20px {res['color']}33;" if name == selected_model else ""
+        hl    = f"border: 1px solid {res['color']}60;" if name == selected_model else \
+                "border: 1px solid rgba(124,58,237,0.2);"
+        arrow = "▲ selected" if name == selected_model else ""
+        with col:
+            st.markdown(f"""
+<div style="background:#1a1830; {hl} {glow} border-radius:12px; padding:18px;">
+<span class="badge {bc}">{name}</span>
+<small style="color:{res['color']}; margin-left:8px">{arrow}</small>
+<br><br>
+<table style="width:100%; font-size:0.85rem; color:#e2e8f0; border-collapse:collapse; line-height:2">
+<tr style="color:#94a3b8; font-size:0.72rem; border-bottom:1px solid #2d2b55;">
+  <td>Metric</td><td style="text-align:right">Misinfo</td><td style="text-align:right">Legit</td>
+</tr>
+<tr><td>Precision</td>
+  <td style="text-align:right">{res['misinfo']['precision']:.2f}</td>
+  <td style="text-align:right">{res['legit']['precision']:.2f}</td></tr>
+<tr><td>Recall</td>
+  <td style="text-align:right">{res['misinfo']['recall']:.2f}</td>
+  <td style="text-align:right">{res['legit']['recall']:.2f}</td></tr>
+<tr><td>F1-Score</td>
+  <td style="text-align:right">{res['misinfo']['f1']:.2f}</td>
+  <td style="text-align:right">{res['legit']['f1']:.2f}</td></tr>
+<tr style="font-weight:700; color:{res['color']}; border-top:1px solid #2d2b55;">
+  <td>Macro F1</td>
+  <td style="text-align:right" colspan="2">{res['macro_f1']:.2f}</td>
+</tr>
+</table>
+</div>
+""", unsafe_allow_html=True)
+
+# ───────────────────────────────────────────────────────────────────
+# TAB 3 — PATTERN ANALYSIS
+# ───────────────────────────────────────────────────────────────────
+with tab3:
+    st.markdown("#### Misinformation Pattern Analysis")
+    total_misinfo_full = 66537
+
+    col_p1, col_p2 = st.columns([3, 2])
+
+    with col_p1:
+        st.markdown("##### Category Breakdown (Full Dataset)")
+        cats   = list(MISINFO_CATEGORIES.keys())
+        counts = [v["count"] for v in MISINFO_CATEGORIES.values()]
+        colors = [v["color"] for v in MISINFO_CATEGORIES.values()]
+        pcts   = [c / total_misinfo_full * 100 for c in counts]
+
+        fig_cats = go.Figure(go.Bar(
+            x=counts, y=cats, orientation="h",
+            marker_color=colors,
+            text=[f"{c:,}  ({p:.1f}%)" for c, p in zip(counts, pcts)],
+            textposition="outside",
+            textfont=dict(color="#e2e8f0", size=11),
+        ))
+        fig_cats.update_layout(
+            **CHART_LAYOUT, height=310,
+            xaxis=dict(**GRID, title="Number of Comments", range=[0, 8400]),
+            yaxis=dict(**GRID, autorange="reversed"),
+        )
+        st.plotly_chart(fig_cats, use_container_width=True)
+
+    with col_p2:
+        st.markdown("##### Key Findings")
+        st.markdown("""
+<div class="info-box">
+<b>Total misinfo (full dataset)</b><br>
+<span style="font-size:1.5rem; font-weight:700; color:#ec4899">66,537</span><br>
+<span style="color:#94a3b8; font-size:0.8rem">out of 582,362 comments (11.4%)</span>
+</div>
+<div class="info-box" style="margin-top:8px">
+<b>Largest misinfo category</b><br>
+Stigma / Dismissal<br>
+<span style="color:#94a3b8; font-size:0.8rem">9.9% of all misinfo comments</span>
+</div>
+<div class="info-box" style="margin-top:8px; border-color:#06b6d4; background:rgba(6,182,212,0.08)">
+<b>Medication mentions: 1.5× more</b><br>
+Misinfo 1.2% vs Legit 0.8%<br>
+<span style="color:#94a3b8; font-size:0.8rem">Highest cross-category ratio</span>
+</div>
+""", unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("##### Temporal Trend — Comments Over Time (Gold Dataset)")
+
+    valid_fc = fc.dropna(subset=["date"])
+    if len(valid_fc) > 0:
+        trend = (
+            valid_fc.groupby(["year_month", "is_misinfo"])
+            .size()
+            .reset_index(name="count")
+        )
+        trend     = trend.sort_values("year_month")
+        t_legit   = trend[~trend["is_misinfo"]]
+        t_misinfo = trend[trend["is_misinfo"]]
+
+        fig_trend = go.Figure()
+        fig_trend.add_trace(go.Scatter(
+            x=t_legit["year_month"], y=t_legit["count"],
+            name="Legitimate", mode="lines",
+            line=dict(color="#06b6d4", width=2),
+            fill="tozeroy", fillcolor="rgba(6,182,212,0.08)",
+        ))
+        fig_trend.add_trace(go.Scatter(
+            x=t_misinfo["year_month"], y=t_misinfo["count"],
+            name="Misinformation", mode="lines",
+            line=dict(color="#ec4899", width=2),
+            fill="tozeroy", fillcolor="rgba(236,72,153,0.10)",
+        ))
+        fig_trend.update_layout(
+            **CHART_LAYOUT, height=250,
+            xaxis=dict(**GRID, title="Month"),
+            yaxis=dict(**GRID, title="Comment Count"),
+        )
+        st.plotly_chart(fig_trend, use_container_width=True)
+    else:
+        st.info("No valid date data for the current filter selection.")
+
+    st.markdown("---")
+    st.markdown("##### Sample Comments")
+    cs1, cs2 = st.columns(2)
+
+    with cs1:
+        st.markdown(
+            '<span style="color:#ec4899; font-weight:600; font-size:0.9rem">Misinformation</span>',
+            unsafe_allow_html=True,
+        )
+        n_avail    = int(fc["is_misinfo"].sum())
+        sample_mis = fc[fc["is_misinfo"]]["text"].dropna().sample(min(5, n_avail), random_state=42)
+        for t in sample_mis:
+            st.markdown(f'<div class="comment-card-pink">{clean_text(t)}</div>', unsafe_allow_html=True)
+
+    with cs2:
+        st.markdown(
+            '<span style="color:#06b6d4; font-weight:600; font-size:0.9rem">Legitimate</span>',
+            unsafe_allow_html=True,
+        )
+        n_legit    = int((~fc["is_misinfo"]).sum())
+        sample_leg = fc[~fc["is_misinfo"]]["text"].dropna().sample(min(5, n_legit), random_state=77)
+        for t in sample_leg:
+            st.markdown(f'<div class="comment-card-teal">{clean_text(t)}</div>', unsafe_allow_html=True)
+
+# ───────────────────────────────────────────────────────────────────
+# TAB 4 — LIVE CLASSIFIER
+# ───────────────────────────────────────────────────────────────────
+with tab4:
+    st.markdown(f"#### Live Classifier — {selected_model}")
+    st.markdown(
+        f'<span class="badge {badge_cls}">{selected_model}</span> &nbsp; '
+        f'<code>{m["base"]}</code>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="warn-box">⚠️ <b>Model weights not loaded.</b> '
+        "The interface is ready — set the model path at the top of "
+        "<code>dashboard_app.py</code> to enable live inference.</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    user_text = st.text_area(
+        "Enter a social media comment to classify:",
+        placeholder=(
+            "e.g. 'This medication is dangerous and doctors don't want you to know the truth…'\n"
+            "or 'I've been in therapy for 6 months and it's genuinely helped my anxiety.'"
+        ),
+        height=130,
+    )
+
+    btn_col, info_col = st.columns([1, 4])
+    with btn_col:
+        st.button("Classify →", type="primary", disabled=True)
+    with info_col:
+        st.markdown(
+            '<small>Model weights required · Max token length: 128 · '
+            'Classes: Misinformation / Legitimate</small>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+    st.markdown("##### How to enable live inference")
+
+    tok_cls   = "RobertaTokenizer, RobertaForSequenceClassification" if selected_model == "RoBERTa" \
+                else "AutoTokenizer, AutoModelForSequenceClassification"
+    tok_name  = "RobertaTokenizer"  if selected_model == "RoBERTa" else "AutoTokenizer"
+    model_cls = "RobertaForSequenceClassification" if selected_model == "RoBERTa" \
+                else "AutoModelForSequenceClassification"
+    path_var  = "ROBERTA_PATH" if selected_model == "RoBERTa" else "MENTALBERT_PATH"
+
+    st.code(
+        f"# 1. Set path to your saved {selected_model} model folder\n"
+        f'{path_var} = r"C:\\path\\to\\your\\saved_model"\n\n'
+        f"# 2. Load tokenizer and model\n"
+        f"from transformers import {tok_cls}\n"
+        f"import torch\n\n"
+        f"tokenizer  = {tok_name}.from_pretrained({path_var})\n"
+        f"clf_model  = {model_cls}.from_pretrained({path_var})\n"
+        f"clf_model.eval()\n\n"
+        f"# 3. Inference\n"
+        f"inputs = tokenizer(user_text, return_tensors='pt', truncation=True, max_length=128)\n"
+        f"with torch.no_grad():\n"
+        f"    logits = clf_model(**inputs).logits\n"
+        f"pred  = torch.argmax(logits, dim=1).item()\n"
+        f"label = 'Misinformation' if pred == 0 else 'Legitimate'",
+        language="python",
+    )
+
+    st.markdown("---")
+    st.markdown(
+        f'<div class="info-box"><b>{selected_model} quick reference</b><br>'
+        f'Macro F1: <b>{m["macro_f1"]:.2f}</b> &nbsp;·&nbsp; '
+        f'Accuracy: <b>{m["accuracy"]:.2f}</b><br>'
+        f'Catches <b>{int(m["misinfo"]["recall"]*100)}%</b> of real misinformation '
+        f'(recall) with <b>{int(m["misinfo"]["precision"]*100)}%</b> precision</div>',
+        unsafe_allow_html=True,
+    )
