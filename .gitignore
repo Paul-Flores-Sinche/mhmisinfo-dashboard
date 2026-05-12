@@ -1,0 +1,17 @@
+# Large data files
+*.csv
+
+# Notebooks (output can contain sensitive data)
+*.ipynb
+
+# Generated charts
+*.png
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Claude Code internal files
+.claude/
