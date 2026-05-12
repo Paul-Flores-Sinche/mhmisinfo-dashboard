@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 import os
 import re
@@ -290,18 +291,107 @@ GRID = dict(gridcolor="#2d2b55", linecolor="#2d2b55")
 DATA_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+def generate_sample_data():
+    """Synthetic data used when CSV files are absent (e.g. Streamlit Cloud)."""
+    rng = np.random.default_rng(42)
+
+    misinfo_texts = [
+        "Doctors don't want you to know this natural cure for depression.",
+        "Big pharma is hiding the real treatments for mental illness.",
+        "Vaccines cause autism — proven by independent research.",
+        "Mental illness is fake, just think positive and you'll be fine.",
+        "Natural remedies can cure schizophrenia without dangerous medication.",
+        "The government is putting chemicals in water to cause mental illness.",
+        "Psychiatrists are corrupt and just want to drug your children.",
+        "Antidepressants are more dangerous than the depression itself.",
+        "This herb cures ADHD in 30 days — doctors won't tell you.",
+        "Stop taking your meds and try this simple detox instead.",
+        "Mental health industry is a scam designed to control the population.",
+        "They're using 5G to trigger mental illness in the population.",
+        "Essential oils and diet can replace all psychiatric medications.",
+        "Big pharma profits from keeping you sick — seek natural cures.",
+        "Meditation alone cures bipolar disorder, no pills needed.",
+    ]
+    legit_texts = [
+        "I've been in therapy for 6 months and it has genuinely helped my anxiety.",
+        "My doctor prescribed medication and it really changed my life for the better.",
+        "Mental health awareness is so important — thank you for sharing this.",
+        "If you're struggling, please reach out to a mental health professional.",
+        "CBT helped me manage my depression. Highly recommend it.",
+        "I was diagnosed with ADHD last year and the right medication made a huge difference.",
+        "Therapy isn't a sign of weakness — it takes real courage to seek help.",
+        "I relate to this so much. Living with OCD is really challenging.",
+        "The stigma around mental health needs to end. We need to talk more openly.",
+        "My psychiatrist has been amazing. Finding the right support changed everything.",
+        "Recovery is not linear, but it is possible. Keep going.",
+        "This video helped me understand what my friend is going through.",
+        "Mental health days should be normalized just like physical sick days.",
+        "Just started my mental health journey — nervous but hopeful.",
+        "Remember: asking for help is a sign of strength, not weakness.",
+        "The research on this topic is really fascinating and encouraging.",
+        "My anxiety improved so much with the right combination of therapy and meds.",
+        "I love how this community supports each other through tough times.",
+        "Six months of DBT and I barely recognise how much I've grown.",
+        "Please don't suffer in silence — help is out there.",
+    ]
+
+    # ~500 comments, ~90% YouTube / ~10% Bitchute
+    n = 500
+    platforms = rng.choice(["Youtube", "Bitchute"], size=n, p=[0.90, 0.10])
+    labels    = [
+        -1 if rng.random() < (0.116 if p == "Youtube" else 0.055) else 0
+        for p in platforms
+    ]
+    texts = [
+        rng.choice(misinfo_texts) if lbl == -1 else rng.choice(legit_texts)
+        for lbl in labels
+    ]
+
+    start_ts = int(pd.Timestamp("2021-01-01").timestamp())
+    end_ts   = int(pd.Timestamp("2023-12-31").timestamp())
+
+    comments = pd.DataFrame({
+        "text":                           texts,
+        "commenter_channel_display_name": [f"user_{i}" for i in range(n)],
+        "comment_publish_date":           rng.integers(start_ts, end_ts, size=n).astype(float),
+        "video_id":                       rng.choice([f"vid_{i}" for i in range(50)], size=n),
+        "platform":                       platforms,
+        "label":                          labels,
+    })
+
+    vid_platforms = rng.choice(["Youtube", "Bitchute"], size=50, p=[0.86, 0.14])
+    vid_labels    = rng.choice([-1, 0], size=50, p=[0.16, 0.84])
+    videos = pd.DataFrame({
+        "video_id":            [f"vid_{i}" for i in range(50)],
+        "video_title":         [f"Mental Health Video {i}" for i in range(50)],
+        "label":               vid_labels,
+        "platform":            vid_platforms,
+        "video_comment_count": rng.integers(10, 500, size=50),
+    })
+
+    return comments, videos
+
+
 @st.cache_data(show_spinner="Loading dataset…")
 def load_data():
-    comments = pd.read_csv(os.path.join(DATA_DIR, "comments_MHMisinfo_Gold.csv"))
-    videos   = pd.read_csv(os.path.join(DATA_DIR, "videos_MHMisinfo_Gold.csv"))
+    comments_path = os.path.join(DATA_DIR, "comments_MHMisinfo_Gold.csv")
+    videos_path   = os.path.join(DATA_DIR, "videos_MHMisinfo_Gold.csv")
+    sample_mode   = not (os.path.exists(comments_path) and os.path.exists(videos_path))
+
+    if sample_mode:
+        comments, videos = generate_sample_data()
+    else:
+        comments = pd.read_csv(comments_path)
+        videos   = pd.read_csv(videos_path)
+
     comments["date"]       = pd.to_datetime(comments["comment_publish_date"], unit="s", errors="coerce")
     comments["year_month"] = comments["date"].dt.to_period("M").astype(str)
     comments["is_misinfo"] = comments["label"] == -1
     videos["is_misinfo"]   = videos["label"] == -1
-    return comments, videos
+    return comments, videos, sample_mode
 
 
-comments_df, videos_df = load_data()
+comments_df, videos_df, SAMPLE_MODE = load_data()
 
 
 def clean_text(text, max_len=220):
@@ -368,6 +458,15 @@ st.markdown(
     "MHMisinfo Dataset &nbsp;·&nbsp; RoBERTa & MentalBERT",
     unsafe_allow_html=True,
 )
+
+if SAMPLE_MODE:
+    st.warning(
+        "**Demo mode** — dataset CSV files were not found. "
+        "Displaying synthetic sample data for illustration purposes. "
+        "Charts and statistics reflect the real dataset when run locally with the CSV files present.",
+        icon="⚠️",
+    )
+
 st.markdown("---")
 
 # ═══════════════════════════════════════════════════════════════════
