@@ -1,5 +1,9 @@
-# Large data files
-*.csv
+# Large data files (root-level only)
+/*.csv
+
+# Sample data for Streamlit Cloud — committed to repo
+!data/
+!data/*.csv
 
 # Notebooks (output can contain sensitive data)
 *.ipynb

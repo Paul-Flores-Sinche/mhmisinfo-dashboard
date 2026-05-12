@@ -374,24 +374,31 @@ def generate_sample_data():
 
 @st.cache_data(show_spinner="Loading dataset…")
 def load_data():
-    comments_path = os.path.join(DATA_DIR, "comments_MHMisinfo_Gold.csv")
-    videos_path   = os.path.join(DATA_DIR, "videos_MHMisinfo_Gold.csv")
-    sample_mode   = not (os.path.exists(comments_path) and os.path.exists(videos_path))
+    full_c = os.path.join(DATA_DIR, "comments_MHMisinfo_Gold.csv")
+    full_v = os.path.join(DATA_DIR, "videos_MHMisinfo_Gold.csv")
+    samp_c = os.path.join(DATA_DIR, "data", "sample_comments.csv")
+    samp_v = os.path.join(DATA_DIR, "data", "sample_videos.csv")
 
-    if sample_mode:
-        comments, videos = generate_sample_data()
+    if os.path.exists(full_c) and os.path.exists(full_v):
+        comments = pd.read_csv(full_c)
+        videos   = pd.read_csv(full_v)
+        mode     = "full"
+    elif os.path.exists(samp_c) and os.path.exists(samp_v):
+        comments = pd.read_csv(samp_c)
+        videos   = pd.read_csv(samp_v)
+        mode     = "sample"
     else:
-        comments = pd.read_csv(comments_path)
-        videos   = pd.read_csv(videos_path)
+        comments, videos = generate_sample_data()
+        mode = "synthetic"
 
     comments["date"]       = pd.to_datetime(comments["comment_publish_date"], unit="s", errors="coerce")
     comments["year_month"] = comments["date"].dt.to_period("M").astype(str)
     comments["is_misinfo"] = comments["label"] == -1
     videos["is_misinfo"]   = videos["label"] == -1
-    return comments, videos, sample_mode
+    return comments, videos, mode
 
 
-comments_df, videos_df, SAMPLE_MODE = load_data()
+comments_df, videos_df, DATA_MODE = load_data()
 
 
 def clean_text(text, max_len=220):
@@ -433,12 +440,32 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### 📦 Dataset")
+    if DATA_MODE == "full":
+        c_rows, c_mis, c_leg = "135,445", "8,025", "127,420"
+        v_rows, v_mis, v_leg = "739", "120", "619"
+        c_label, v_label = "Gold Comments", "Gold Videos"
+    elif DATA_MODE == "sample":
+        c_rows = f"{len(comments_df):,}"
+        c_mis  = str(int(comments_df['is_misinfo'].sum()))
+        c_leg  = str(int((~comments_df['is_misinfo']).sum()))
+        v_rows = f"{len(videos_df):,}"
+        v_mis  = str(int(videos_df['is_misinfo'].sum()))
+        v_leg  = str(int((~videos_df['is_misinfo']).sum()))
+        c_label, v_label = "Comments (stratified sample)", "Videos (stratified sample)"
+    else:
+        c_rows = f"{len(comments_df):,}"
+        c_mis  = str(int(comments_df['is_misinfo'].sum()))
+        c_leg  = str(int((~comments_df['is_misinfo']).sum()))
+        v_rows = f"{len(videos_df):,}"
+        v_mis  = str(int(videos_df['is_misinfo'].sum()))
+        v_leg  = str(int((~videos_df['is_misinfo']).sum()))
+        c_label, v_label = "Comments (synthetic)", "Videos (synthetic)"
     st.markdown(
-        '<div class="info-box"><b>Gold Comments</b><br>135,445 records'
-        '<br><span style="color:#94a3b8;font-size:0.82rem">8,025 misinfo · 127,420 legit</span></div>'
-        '<div class="info-box" style="border-color:#06b6d4;background:rgba(6,182,212,0.08);margin-top:6px">'
-        '<b>Gold Videos</b><br>739 records'
-        '<br><span style="color:#94a3b8;font-size:0.82rem">120 misinfo · 619 legit</span></div>',
+        f'<div class="info-box"><b>{c_label}</b><br>{c_rows} records'
+        f'<br><span style="color:#94a3b8;font-size:0.82rem">{c_mis} misinfo · {c_leg} legit</span></div>'
+        f'<div class="info-box" style="border-color:#06b6d4;background:rgba(6,182,212,0.08);margin-top:6px">'
+        f'<b>{v_label}</b><br>{v_rows} records'
+        f'<br><span style="color:#94a3b8;font-size:0.82rem">{v_mis} misinfo · {v_leg} legit</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -459,11 +486,17 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if SAMPLE_MODE:
+if DATA_MODE == "sample":
+    st.info(
+        "**Stratified sample** — showing a representative 1,000-comment / 200-video sample "
+        "drawn from the real MHMisinfo Gold dataset. Class proportions reflect the full dataset.",
+        icon="📊",
+    )
+elif DATA_MODE == "synthetic":
     st.warning(
-        "**Demo mode** — dataset CSV files were not found. "
-        "Displaying synthetic sample data for illustration purposes. "
-        "Charts and statistics reflect the real dataset when run locally with the CSV files present.",
+        "**Demo mode** — sample CSV files were not found. "
+        "Displaying synthetic data for illustration purposes only. "
+        "Run locally with the CSV files present for real statistics.",
         icon="⚠️",
     )
 
