@@ -798,6 +798,15 @@ def render_classifier_tab(selected_model, m, badge_cls):
     tokenizer, clf_model, load_error = load_classifier(selected_model)
     model_ready = tokenizer is not None
 
+    # ── Session state init ──────────────────────────────────────────
+    if "clf_history"       not in st.session_state:
+        st.session_state.clf_history    = []
+    if "auto_classify"     not in st.session_state:
+        st.session_state.auto_classify  = False
+    if "classifier_input"  not in st.session_state:
+        st.session_state.classifier_input = ""
+
+    # ── Header ─────────────────────────────────────────────────────
     st.markdown(f"#### Live Classifier — {selected_model}")
     st.markdown(
         f'<span class="badge {badge_cls}">{selected_model}</span> &nbsp; '
@@ -807,6 +816,7 @@ def render_classifier_tab(selected_model, m, badge_cls):
     )
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # ── Model load error ───────────────────────────────────────────
     if not model_ready:
         if load_error:
             st.markdown(
@@ -824,6 +834,41 @@ def render_classifier_tab(selected_model, m, badge_cls):
             )
         st.markdown("<br>", unsafe_allow_html=True)
 
+    # ── Quick examples ─────────────────────────────────────────────
+    st.markdown("##### Quick Examples")
+    st.markdown(
+        '<small style="color:#64748b">Click an example to auto-fill and classify.</small>',
+        unsafe_allow_html=True,
+    )
+    misinfo_pool = comments_df[comments_df["is_misinfo"]]["text"].dropna()
+    legit_pool   = comments_df[~comments_df["is_misinfo"]]["text"].dropna()
+    ex_mis = misinfo_pool.sample(min(2, len(misinfo_pool)), random_state=99).tolist()
+    ex_leg = legit_pool.sample(min(2, len(legit_pool)),     random_state=99).tolist()
+    examples = []
+    for mis_t, leg_t in zip(ex_mis, ex_leg):
+        examples.append({"text": mis_t, "ground_truth": "Misinformation"})
+        examples.append({"text": leg_t, "ground_truth": "Legitimate"})
+
+    row1, row2 = st.columns(2), st.columns(2)
+    ex_cols = list(row1) + list(row2)
+    for i, (col, ex) in enumerate(zip(ex_cols, examples)):
+        is_mis = ex["ground_truth"] == "Misinformation"
+        color  = "#ec4899" if is_mis else "#06b6d4"
+        prefix = "🚨 Misinfo" if is_mis else "✓ Legit"
+        short  = ex["text"][:50].rstrip() + "…"
+        with col:
+            st.markdown(
+                f'<div style="font-size:0.7rem; color:{color}; font-weight:600; margin-bottom:3px">'
+                f'{prefix}</div>',
+                unsafe_allow_html=True,
+            )
+            if st.button(f'"{short}"', key=f"ex_{i}", use_container_width=True):
+                st.session_state.classifier_input = ex["text"]
+                st.session_state.auto_classify    = True
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Text area ──────────────────────────────────────────────────
     user_text = st.text_area(
         "Enter a social media comment to classify:",
         placeholder=(
@@ -831,10 +876,12 @@ def render_classifier_tab(selected_model, m, badge_cls):
             "or 'I've been in therapy for 6 months and it's genuinely helped my anxiety.'"
         ),
         height=130,
+        key="classifier_input",
     )
 
-    btn_col, info_col = st.columns([1, 4])
-    with btn_col:
+    # ── Classify button ────────────────────────────────────────────
+    act_col, info_col = st.columns([1, 4])
+    with act_col:
         classify = st.button(
             "Classify →",
             type="primary",
@@ -847,7 +894,12 @@ def render_classifier_tab(selected_model, m, badge_cls):
             unsafe_allow_html=True,
         )
 
-    if classify and user_text.strip() and model_ready:
+    # ── Inference (manual button or auto from example) ─────────────
+    run_inference = classify or st.session_state.auto_classify
+    if st.session_state.auto_classify:
+        st.session_state.auto_classify = False
+
+    if run_inference and user_text.strip() and model_ready:
         with st.spinner("Running inference…"):
             inputs = tokenizer(
                 user_text,
@@ -858,9 +910,9 @@ def render_classifier_tab(selected_model, m, badge_cls):
             )
             with torch.no_grad():
                 logits = clf_model(**inputs).logits
-            probs     = torch.softmax(logits, dim=1)[0]
-            pred      = torch.argmax(logits, dim=1).item()
-            label     = "Misinformation" if pred == 0 else "Legitimate"
+            probs      = torch.softmax(logits, dim=1)[0]
+            pred       = torch.argmax(logits, dim=1).item()
+            label      = "Misinformation" if pred == 0 else "Legitimate"
             confidence = probs[pred].item() * 100
 
         if pred == 0:
@@ -886,6 +938,43 @@ def render_classifier_tab(selected_model, m, badge_cls):
                 unsafe_allow_html=True,
             )
 
+        short_comment = user_text[:80].rstrip() + ("…" if len(user_text) > 80 else "")
+        st.session_state.clf_history.insert(0, {
+            "Comment":    short_comment,
+            "Label":      label,
+            "Confidence": f"{confidence:.1f}%",
+            "Model":      selected_model,
+        })
+
+    # ── Classification history ─────────────────────────────────────
+    st.markdown("---")
+    hist_hdr, clear_col = st.columns([5, 1])
+    with hist_hdr:
+        st.markdown("##### Classification History")
+    with clear_col:
+        if st.button("Clear", key="clear_history"):
+            st.session_state.clf_history = []
+
+    if st.session_state.clf_history:
+        st.dataframe(
+            pd.DataFrame(st.session_state.clf_history),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Comment":    st.column_config.TextColumn(width="large"),
+                "Label":      st.column_config.TextColumn(width="small"),
+                "Confidence": st.column_config.TextColumn(width="small"),
+                "Model":      st.column_config.TextColumn(width="small"),
+            },
+        )
+    else:
+        st.markdown(
+            '<div style="color:#64748b; font-size:0.85rem; padding:8px 0">'
+            'No classifications yet this session.</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Model quick reference ──────────────────────────────────────
     st.markdown("---")
     st.markdown(
         f'<div class="info-box"><b>{selected_model} quick reference</b><br>'

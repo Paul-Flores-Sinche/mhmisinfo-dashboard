@@ -25,15 +25,15 @@
 
 ## 3. Models
 
-| Model | Base | F1 Score | Notes |
-|-------|------|----------|-------|
-| RoBERTa | roberta-base | 0.76 | Fine-tuned on MHMisinfo |
-| MentalBERT | mental/mental-bert-base-uncased | 0.77 | Fine-tuned on MHMisinfo |
+| Model | Base | F1 Score | HuggingFace Hub |
+|-------|------|----------|-----------------|
+| RoBERTa | roberta-base | 0.76 | `Paulst7/roberta-mhmisinfo` |
+| MentalBERT | mental/mental-bert-base-uncased | 0.77 | `Paulst7/mentalbert-mhmisinfo` |
 
 - Both models fine-tuned on the **MHMisinfo dataset** (Zenodo DOI: 10.5281/zenodo.13191247)
 - Class imbalance handled via **50/50 undersampling**
 - Training done in **Google Colab**
-- Models saved to **Google Drive**
+- Models published to **HuggingFace Hub** (loaded via `from_pretrained()` at runtime)
 - Key finding: YouTube shows higher misinformation rate (11.6%) than Bitchute (5.5%)
 
 ---
@@ -60,20 +60,23 @@ Labels: binary — misinformation (1) vs. credible (0)
 
 ## 5. Dashboard — Current State
 
+**Status: LIVE** at https://mhmisinfo-dashboard.streamlit.app
+**Hosting:** Streamlit Community Cloud (permanent, free)
 **Framework:** Streamlit
-**Theme:** Dark UI (`#0a0e1a` background, `#00d4b4` accent teal, `#4f8fff` blue)
-**Fonts:** Space Mono (headings) + Inter (body) via Google Fonts
+**Theme:** Dark purple-navy UI (`#0f0e17` background, `#7c3aed` purple accent, `#06b6d4` teal)
+**Fonts:** Inter via Google Fonts
 
-### Dashboard sections already built:
-- Page config & CSS theme (dark, card-based layout)
-- Sidebar with filters
-- RoBERTa vs MentalBERT live inference (text input → classification)
-- Model performance comparison charts (F1, precision, recall)
-- Platform comparison visualisations (YouTube vs Bitchute)
-- Temporal trend analysis
-- Confusion matrix display
+### Tabs built:
+- **Overview** — KPI cards, platform comparison bar charts, comment/video label pie charts
+- **Model Performance** — per-class metrics, confusion matrix, training loss curve, side-by-side comparison
+- **Pattern Analysis** — misinformation category breakdown, temporal trend, sample comments
+- **Live Classifier** — real inference via sidebar model selector (RoBERTa or MentalBERT)
 
-### Main file: `dashboard_app.py`
+### Architecture (`dashboard_app.py`):
+- Each tab is a standalone function: `render_overview()`, `render_model_tab()`, `render_pattern_tab()`, `render_classifier_tab()`
+- Repeated HTML patterns use helpers: `kpi_gradient()`, `kpi_solid()`
+- Model loading uses `@st.cache_resource` — models load once and stay in memory
+- Data loading uses `@st.cache_data` — falls back through: full CSV → sample CSV → synthetic data
 
 ### Key imports used:
 ```python
@@ -82,13 +85,11 @@ import torch
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
+import os, re
 from transformers import (
     RobertaTokenizer, RobertaForSequenceClassification,
-    AutoTokenizer, AutoModelForSequenceClassification
+    AutoTokenizer, AutoModelForSequenceClassification,
 )
-from sklearn.metrics import confusion_matrix
 ```
 
 ---
@@ -110,29 +111,39 @@ from sklearn.metrics import confusion_matrix
 
 ---
 
-## 7. Model Loading (path config)
+## 7. Model Loading
 
-Models are loaded from Google Drive via mounted paths in Colab, or locally when running on laptop. The dashboard has a path config section:
+Models are loaded from HuggingFace Hub at runtime using `@st.cache_resource`:
 
 ```python
-ROBERTA_PATH    = '...'   # path to saved RoBERTa model
-MENTALBERT_PATH = '...'   # path to saved MentalBERT model
-RESULTS_PATH    = '...'   # path to evaluation results
+MODEL_HUB_IDS = {
+    "RoBERTa":    "Paulst7/roberta-mhmisinfo",
+    "MentalBERT": "Paulst7/mentalbert-mhmisinfo",
+}
 ```
 
-> When running locally on Windows, update these paths to wherever the models are saved.
+- Auth token read from environment variable `HF_TOKEN`
+- On Streamlit Cloud: set `HF_TOKEN` under app Settings → Secrets
+- Locally: `$env:HF_TOKEN = "hf_xxx"` before running
+- If the Hub repo is public, `HF_TOKEN` is not required
 
 ---
 
 ## 8. How to Run
 
-```bash
+```powershell
 # Install dependencies
 pip install streamlit torch transformers pandas numpy plotly scikit-learn
 
-# Run dashboard
-streamlit run dashboard_app.py
+# Set HuggingFace token (if repo is private)
+$env:HF_TOKEN = "hf_xxxxxxxxxxxx"
+
+# Run dashboard (use python -m streamlit — streamlit not in PATH on this machine)
+python -m streamlit run dashboard_app.py
 ```
+
+> Note: `streamlit` is not in the Windows PATH. Always use `python -m streamlit run`.
+> A `~/.streamlit/credentials.toml` and `~/.streamlit/config.toml` are configured to skip first-run prompts.
 
 ---
 
@@ -163,14 +174,14 @@ streamlit run dashboard_app.py
 - Live classifier must work with both models via the selector
 - **Migrate from Google Colab to permanent hosting** — Streamlit Community Cloud preferred (lifetime hosting, CV portfolio value)
 
-### Current Dashboard Status
-- Live classifier functional with RoBERTa and MentalBERT
-- Features: live inference, model performance metrics, pattern analysis, platform comparison
-- Currently runs on Google Colab (requires manual execution for links)
-- Needs migration to Streamlit Community Cloud
+### Current Dashboard Status ✓ COMPLETE
+- **Live at:** https://mhmisinfo-dashboard.streamlit.app
+- Live classifier working — both models load from HuggingFace Hub, real inference runs
+- All four tabs complete: Overview, Model Performance, Pattern Analysis, Live Classifier
+- Hosted on Streamlit Community Cloud (permanent, no manual execution needed)
 
 ### Timeline
-- **Week 10:** Complete dashboard + make it live
+- **Week 10:** ✓ Dashboard complete and live
 - Send dashboard to another student group for testing (4-5 usability questions)
 - **Week 12:** Public release target
 - Optional: IT Code Fair (November 5th, submission by September)
@@ -186,6 +197,7 @@ streamlit run dashboard_app.py
 
 1. Read this file first
 2. Check which files exist in the `Coding/` folder
-3. Ask what he wants to work on today (dashboard feature, bug fix, new section, etc.)
+3. Ask what he wants to work on today (dashboard feature, bug fix, report writing, evaluation, etc.)
 4. Keep explanations clear — explain *what* and *why* before writing code
-5. Always run `streamlit run dashboard_app.py` to verify changes work
+5. To test locally: `python -m streamlit run dashboard_app.py` (not `streamlit run`)
+6. Dashboard is already live — next priorities are usability evaluation and thesis report
