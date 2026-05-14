@@ -70,7 +70,7 @@ Labels: binary — misinformation (1) vs. credible (0)
 - **Overview** — KPI cards, platform comparison bar charts, comment/video label pie charts
 - **Model Performance** — per-class metrics, confusion matrix, training loss curve, side-by-side comparison
 - **Pattern Analysis** — misinformation category breakdown, temporal trend, sample comments
-- **Live Classifier** — real inference via sidebar model selector (RoBERTa or MentalBERT)
+- **Live Classifier** — real inference via sidebar model selector (RoBERTa or MentalBERT); quick example buttons (2 misinfo + 2 legit from real dataset, auto-fill + auto-classify on click); classification history table (comment, label, confidence %, model; persists per session; Clear button)
 
 ### Architecture (`dashboard_app.py`):
 - Each tab is a standalone function: `render_overview()`, `render_model_tab()`, `render_pattern_tab()`, `render_classifier_tab()`
@@ -174,10 +174,11 @@ python -m streamlit run dashboard_app.py
 - Live classifier must work with both models via the selector
 - **Migrate from Google Colab to permanent hosting** — Streamlit Community Cloud preferred (lifetime hosting, CV portfolio value)
 
-### Current Dashboard Status ✓ COMPLETE
+### Current Dashboard Status ✓ COMPLETE — ready for evaluation
 - **Live at:** https://mhmisinfo-dashboard.streamlit.app
-- Live classifier working — both models load from HuggingFace Hub, real inference runs
+- Models: `Paulst7/roberta-mhmisinfo` and `Paulst7/mentalbert-mhmisinfo` (HuggingFace Hub)
 - All four tabs complete: Overview, Model Performance, Pattern Analysis, Live Classifier
+- Live Classifier fully featured: real inference, quick example buttons, classification history table
 - Hosted on Streamlit Community Cloud (permanent, no manual execution needed)
 
 ### Timeline

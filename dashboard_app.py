@@ -389,7 +389,7 @@ MODEL_RESULTS = {
         "color":      "#8B6CF8",
         "misinfo":    {"precision": 0.72, "recall": 0.79, "f1": 0.76, "support": 1000},
         "legit":      {"precision": 0.77, "recall": 0.70, "f1": 0.73, "support": 1000},
-        "cm":         [[720, 280], [250, 750]],
+        "cm":         [[790, 210], [300, 700]],
         "train_loss": [0.5906, 0.4741, 0.3796],
     },
     "MentalBERT": {
@@ -551,6 +551,8 @@ def load_classifier(model_name: str):
 
 
 def clean_text(text, max_len=220):
+    if text is None:
+        return ""
     text = re.sub(r"<[^>]+>", "", str(text))
     text = re.sub(r"http\S+", "", text).strip()
     return text[:max_len] + ("…" if len(text) > max_len else "")
@@ -584,7 +586,7 @@ def alert_bar(msg):
     <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
   </svg>
   <span>{msg}</span>
-  <span style="margin-left:auto;color:#FF9040;font-size:11px;cursor:pointer">Analyse →</span>
+  <span style="margin-left:auto;color:#FF9040;font-size:11px">See Pattern Analysis tab →</span>
 </div>"""
 
 
@@ -646,7 +648,7 @@ def render_overview(fc, fv):
     # ── Alert bar ──────────────────────────────────────────────────
     st.markdown(
         alert_bar(
-            "Platform disparity detected — Bitchute shows 2.1× higher misinformation rate · 11.6% vs 5.5%"
+            "Platform disparity detected — YouTube shows 2.1× higher misinformation rate than Bitchute · 11.6% vs 5.5%"
         ),
         unsafe_allow_html=True,
     )
@@ -803,7 +805,7 @@ def render_overview(fc, fv):
         st.plotly_chart(fig_rate, use_container_width=True)
 
 
-def render_model_tab(selected_model, m, badge_cls):
+def render_model_tab(selected_model, m):
     other_name = "MentalBERT" if selected_model == "RoBERTa" else "RoBERTa"
     other      = MODEL_RESULTS[other_name]
     badge_cls_v = "vbadge-teal" if selected_model == "MentalBERT" else "vbadge-purple"
@@ -879,19 +881,24 @@ def render_model_tab(selected_model, m, badge_cls):
             f'<div class="vcard-sub">Test set (2,000 samples) · {selected_model}</div>',
             unsafe_allow_html=True,
         )
-        cm = m["cm"]
-        # Vigil-style HTML confusion matrix
+        cm  = m["cm"]
+        tpr = cm[0][0] / (cm[0][0] + cm[0][1])  # recall / sensitivity
+        tnr = cm[1][1] / (cm[1][0] + cm[1][1])  # specificity
         st.markdown(f"""
 <div style="display:grid;grid-template-columns:80px 1fr 1fr;gap:8px;margin-top:16px">
   <div></div>
   <div style="font-size:9px;color:#3D4A6B;text-align:center;padding-bottom:4px">Pred: Misinfo</div>
   <div style="font-size:9px;color:#3D4A6B;text-align:center;padding-bottom:4px">Pred: Legit</div>
   <div style="font-size:9px;color:#3D4A6B;text-align:right;padding-right:8px;display:flex;align-items:center;justify-content:flex-end">Act: Misinfo</div>
-  <div class="vcm-cell vcm-ok">{cm[0][0]:,}</div>
+  <div class="vcm-cell vcm-ok">{cm[0][0]:,}
+    <div style="font-size:8px;color:#00D4A8;margin-top:4px;font-weight:400;letter-spacing:.04em">TPR {tpr:.0%}</div>
+  </div>
   <div class="vcm-cell vcm-ng">{cm[0][1]:,}</div>
   <div style="font-size:9px;color:#3D4A6B;text-align:right;padding-right:8px;display:flex;align-items:center;justify-content:flex-end">Act: Legit</div>
   <div class="vcm-cell vcm-ng">{cm[1][0]:,}</div>
-  <div class="vcm-cell vcm-ok">{cm[1][1]:,}</div>
+  <div class="vcm-cell vcm-ok">{cm[1][1]:,}
+    <div style="font-size:8px;color:#00D4A8;margin-top:4px;font-weight:400;letter-spacing:.04em">TNR {tnr:.0%}</div>
+  </div>
 </div>""", unsafe_allow_html=True)
 
     # ── Training Loss ─────────────────────────────────────────────
@@ -1021,17 +1028,20 @@ def render_pattern_tab(fc):
             '<div class="vcard-sub">Full dataset · 582,362 comments</div>',
             unsafe_allow_html=True,
         )
-        for platform, rate, color, n in [
+        platform_rows = [
             ("YouTube", 11.6, "#00D4A8", "~400K comments"),
             ("Bitchute", 5.5, "#8B6CF8", "~182K comments"),
-        ]:
+        ]
+        max_rate = max(r for _, r, _, _ in platform_rows)
+        for platform, rate, color, n in platform_rows:
+            bar_pct = rate / max_rate * 90
             st.markdown(f"""
 <div style="margin-bottom:14px">
   <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:12px">
     <span style="color:#CDD6F4">{platform}</span>
     <span style="font-family:'IBM Plex Mono',monospace;color:{color};font-weight:600">{rate}%</span>
   </div>
-  <div class="vpb-track"><div class="vpb-fill" style="width:{rate*5}%;background:{color}"></div></div>
+  <div class="vpb-track"><div class="vpb-fill" style="width:{bar_pct:.1f}%;background:{color}"></div></div>
   <div style="font-size:9px;color:#3D4A6B;margin-top:3px">{n}</div>
 </div>""", unsafe_allow_html=True)
 
@@ -1105,16 +1115,17 @@ def render_pattern_tab(fc):
             )
 
 
-def render_classifier_tab(selected_model, m, badge_cls):
+def render_classifier_tab(selected_model, m, ex_comments):
     tokenizer, clf_model, load_error = load_classifier(selected_model)
     model_ready = tokenizer is not None
     badge_cls_v = "vbadge-teal" if selected_model == "MentalBERT" else "vbadge-purple"
 
     # Session state
     for key, default in [
-        ("clf_history", []),
-        ("auto_classify", False),
+        ("clf_history",      []),
+        ("auto_classify",    False),
         ("classifier_input", ""),
+        ("last_result",      None),
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
@@ -1151,8 +1162,8 @@ def render_classifier_tab(selected_model, m, badge_cls):
         '<div class="vcard-sub" style="margin-bottom:8px">Click an example to auto-fill and classify</div>',
         unsafe_allow_html=True,
     )
-    misinfo_pool = comments_df[comments_df["is_misinfo"]]["text"].dropna()
-    legit_pool   = comments_df[~comments_df["is_misinfo"]]["text"].dropna()
+    misinfo_pool = ex_comments[ex_comments["is_misinfo"]]["text"].dropna()
+    legit_pool   = ex_comments[~ex_comments["is_misinfo"]]["text"].dropna()
     ex_mis = misinfo_pool.sample(min(2, len(misinfo_pool)), random_state=99).tolist()
     ex_leg = legit_pool.sample(min(2, len(legit_pool)), random_state=99).tolist()
     examples = []
@@ -1215,38 +1226,15 @@ def render_classifier_tab(selected_model, m, badge_cls):
             pred       = torch.argmax(logits, dim=1).item()
             label      = "Misinformation" if pred == 0 else "Legitimate"
             confidence = probs[pred].item() * 100
-            ms_prob    = probs[0].item() * 100
-            lg_prob    = probs[1].item() * 100
 
-        if pred == 0:
-            st.markdown(
-                f'<div class="vcls-ms">'
-                f'<div class="vcls-label" style="color:#FF5555">⚠ {label}</div>'
-                f'<div class="vcls-conf" style="color:#CDD6F4">{confidence:.1f}%</div>'
-                f'<div class="vcls-sub">{selected_model} confidence</div></div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                f'<div class="vcls-result">'
-                f'<div class="vcls-label" style="color:#00D4A8">✓ {label}</div>'
-                f'<div class="vcls-conf" style="color:#CDD6F4">{confidence:.1f}%</div>'
-                f'<div class="vcls-sub">{selected_model} confidence</div></div>',
-                unsafe_allow_html=True,
-            )
-
-        # Probability bars
-        st.markdown(
-            '<div style="margin-top:12px;font-size:9px;text-transform:uppercase;'
-            'letter-spacing:.1em;color:#3D4A6B;margin-bottom:8px">Class scores</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            prob_bar("Misinformation", ms_prob, "#FF5555") +
-            prob_bar("Legitimate", lg_prob, "#00D4A8"),
-            unsafe_allow_html=True,
-        )
-
+        st.session_state.last_result = {
+            "pred":       pred,
+            "label":      label,
+            "confidence": confidence,
+            "ms_prob":    probs[0].item() * 100,
+            "lg_prob":    probs[1].item() * 100,
+            "model":      selected_model,
+        }
         short_comment = user_text[:80].rstrip() + ("…" if len(user_text) > 80 else "")
         st.session_state.clf_history.insert(0, {
             "Comment":    short_comment,
@@ -1254,6 +1242,36 @@ def render_classifier_tab(selected_model, m, badge_cls):
             "Confidence": f"{confidence:.1f}%",
             "Model":      selected_model,
         })
+
+    # ── Result card (persists until model switch or new classification) ─
+    last = st.session_state.last_result
+    if last and last["model"] == selected_model:
+        if last["pred"] == 0:
+            st.markdown(
+                f'<div class="vcls-ms">'
+                f'<div class="vcls-label" style="color:#FF5555">⚠ {last["label"]}</div>'
+                f'<div class="vcls-conf" style="color:#CDD6F4">{last["confidence"]:.1f}%</div>'
+                f'<div class="vcls-sub">{selected_model} confidence</div></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f'<div class="vcls-result">'
+                f'<div class="vcls-label" style="color:#00D4A8">✓ {last["label"]}</div>'
+                f'<div class="vcls-conf" style="color:#CDD6F4">{last["confidence"]:.1f}%</div>'
+                f'<div class="vcls-sub">{selected_model} confidence</div></div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown(
+            '<div style="margin-top:12px;font-size:9px;text-transform:uppercase;'
+            'letter-spacing:.1em;color:#3D4A6B;margin-bottom:8px">Class scores</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            prob_bar("Misinformation", last["ms_prob"], "#FF5555") +
+            prob_bar("Legitimate",     last["lg_prob"], "#00D4A8"),
+            unsafe_allow_html=True,
+        )
 
     # ── Classification history ────────────────────────────────────
     st.markdown("---")
@@ -1330,7 +1348,6 @@ with st.sidebar:
         help="All model-performance sections update to reflect the selected model.",
     )
     m = MODEL_RESULTS[selected_model]
-    badge_cls   = "badge-purple" if selected_model == "RoBERTa" else "badge-teal"
     badge_cls_v = "vbadge-purple" if selected_model == "RoBERTa" else "vbadge-teal"
     st.markdown(
         f'<span class="vbadge {badge_cls_v}">{selected_model}</span>'
@@ -1391,6 +1408,10 @@ with st.sidebar:
 fc = comments_df[comments_df["platform"].isin(platform_filter)] if platform_filter else comments_df
 fv = videos_df[videos_df["platform"].isin(platform_filter)]     if platform_filter else videos_df
 
+if not platform_filter:
+    st.warning("Select at least one platform in the sidebar to view analytics.")
+    st.stop()
+
 # ── Data mode banner ──────────────────────────────────────────────
 if DATA_MODE == "sample":
     st.info(
@@ -1419,10 +1440,10 @@ with tab1:
     render_overview(fc, fv)
 
 with tab2:
-    render_model_tab(selected_model, m, badge_cls)
+    render_model_tab(selected_model, m)
 
 with tab3:
     render_pattern_tab(fc)
 
 with tab4:
-    render_classifier_tab(selected_model, m, badge_cls)
+    render_classifier_tab(selected_model, m, comments_df)
