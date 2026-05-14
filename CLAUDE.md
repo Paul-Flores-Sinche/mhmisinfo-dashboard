@@ -63,8 +63,8 @@ Labels: binary — misinformation (1) vs. credible (0)
 **Status: LIVE** at https://mhmisinfo-dashboard.streamlit.app
 **Hosting:** Streamlit Community Cloud (permanent, free)
 **Framework:** Streamlit
-**Theme:** Dark purple-navy UI (`#0f0e17` background, `#7c3aed` purple accent, `#06b6d4` teal)
-**Fonts:** Inter via Google Fonts
+**Theme:** Vigil — deep-black dark UI (`#09090E` background, `#00D4A8` teal accent, `#8B6CF8` purple)
+**Fonts:** IBM Plex Mono (monospace) via Google Fonts
 
 ### Tabs built:
 - **Overview** — KPI cards, platform comparison bar charts, comment/video label pie charts
@@ -73,10 +73,12 @@ Labels: binary — misinformation (1) vs. credible (0)
 - **Live Classifier** — real inference via sidebar model selector (RoBERTa or MentalBERT); quick example buttons (2 misinfo + 2 legit from real dataset, auto-fill + auto-classify on click); classification history table (comment, label, confidence %, model; persists per session; Clear button)
 
 ### Architecture (`dashboard_app.py`):
-- Each tab is a standalone function: `render_overview()`, `render_model_tab()`, `render_pattern_tab()`, `render_classifier_tab()`
-- Repeated HTML patterns use helpers: `kpi_gradient()`, `kpi_solid()`
+- Each tab is a standalone function: `render_overview(fc, fv)`, `render_model_tab(selected_model, m)`, `render_pattern_tab(fc)`, `render_classifier_tab(selected_model, m, ex_comments)`
+- HTML helpers: `vkpi()`, `alert_bar()`, `vfinding()`, `legend_row()`, `prob_bar()`, `clean_text()`
+- CSS component classes: `.vkpi`, `.vcard`, `.valert`, `.vfind`, `.vbadge`, `.vcls-result`, `.vcls-ms`, `.vpbar`, `.vcm-ok`, `.vcm-ng`
 - Model loading uses `@st.cache_resource` — models load once and stay in memory
 - Data loading uses `@st.cache_data` — falls back through: full CSV → sample CSV → synthetic data
+- Classifier state keys in `st.session_state`: `clf_history`, `auto_classify`, `classifier_input`, `last_result`
 
 ### Key imports used:
 ```python
@@ -94,20 +96,34 @@ from transformers import (
 
 ---
 
-## 6. Design System
+## 6. Design System (Vigil Theme — applied 2026-05-14)
 
+### Color palette
 ```css
---bg-primary:   #0a0e1a
---bg-secondary: #111827
---bg-card:      #1a2235
---accent:       #00d4b4   /* teal */
---accent-2:     #4f8fff   /* blue */
---danger:       #ff4b6e
---warning:      #f59e0b
---text-primary: #e2e8f0
---text-muted:   #64748b
---border:       #1e293b
+--bg:           #09090E   /* near-black page background */
+--surface:      #0E0E16   /* card/panel surface */
+--border:       #1C1C2E   /* subtle border */
+--teal:         #00D4A8   /* primary accent — correct, credible */
+--purple:       #8B6CF8   /* secondary accent — model/AI elements */
+--pink:         #FF6B9D   /* danger / misinformation */
+--orange:       #FF9040   /* warning */
+--text:         #E8E8F0   /* primary text */
+--text-muted:   #6B6B8A   /* secondary text */
 ```
+
+### CSS component classes
+| Class | Purpose |
+|-------|---------|
+| `.vkpi` | KPI stat card with teal top-border |
+| `.vcard` | Generic content card (surface bg) |
+| `.valert` | Alert/finding bar with left accent strip |
+| `.vfind` | Key finding callout block |
+| `.vbadge` | Small label badge (color via inline style) |
+| `.vcls-result` | Classifier result card |
+| `.vcls-ms` | Mini metric strip inside result card |
+| `.vpbar` | Probability bar (misinfo vs legit) |
+| `.vcm-ok` | Confusion matrix correct-prediction cell (teal) |
+| `.vcm-ng` | Confusion matrix error-prediction cell (pink) |
 
 ---
 
@@ -194,7 +210,31 @@ python -m streamlit run dashboard_app.py
 
 ---
 
-## 11. What to Do When Paul Opens a Session
+## 11. Changelog
+
+### 2026-05-14 — Vigil redesign + 6 bug fixes
+
+**Vigil theme applied** (full visual redesign of `dashboard_app.py`):
+- New deep-black colour palette replacing the old purple-navy scheme
+- IBM Plex Mono font replacing Inter
+- Custom CSS component system (`.vkpi`, `.vcard`, `.valert`, etc. — see Section 6)
+- Helper functions renamed/replaced: `vkpi()`, `alert_bar()`, `vfinding()`, `legend_row()`, `prob_bar()`
+- Tab function signatures updated to include filtered dataframes and `ex_comments`
+
+**Bug fixes (commit `9749071`):**
+
+| # | Description | Fix |
+|---|-------------|-----|
+| #1 | Result card vanished on any Streamlit rerun | Stored result in `st.session_state.last_result`; rendered from state |
+| #3 | Removing all platforms from filter showed empty charts silently | Added `st.warning` + `st.stop()` guard after filter computation |
+| #5 | Confusion matrix had no annotation on diagonal cells | Added TPR / TNR percentages below each diagonal cell |
+| #6 | Platform bar widths were hardcoded (`rate * 5`) — broke if data changed | Now data-driven: `rate / max_rate * 90` |
+| #8 | **Crash**: `render_classifier_tab` call site passed 2 args; signature required 3 | Call site updated to pass `comments_df` as third arg |
+| #9 | `clean_text(None)` raised `AttributeError` on NaN comment values | Added `if text is None: return ""` guard at top of function |
+
+---
+
+## 12. What to Do When Paul Opens a Session
 
 1. Read this file first
 2. Check which files exist in the `Coding/` folder
