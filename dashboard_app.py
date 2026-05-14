@@ -4,6 +4,11 @@ import numpy as np
 import plotly.graph_objects as go
 import os
 import re
+import torch
+from transformers import (
+    RobertaTokenizer, RobertaForSequenceClassification,
+    AutoTokenizer, AutoModelForSequenceClassification,
+)
 
 # ═══════════════════════════════════════════════════════════════════
 # PAGE CONFIG
@@ -275,7 +280,6 @@ MISINFO_CATEGORIES = {
     "Alternative Treatment":    {"count": 665,  "color": "#22d3ee"},
 }
 
-# Fully transparent backgrounds — charts float on the page bg
 CHART_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
@@ -284,6 +288,12 @@ CHART_LAYOUT = dict(
     legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="rgba(124,58,237,0.2)", borderwidth=1),
 )
 GRID = dict(gridcolor="#2d2b55", linecolor="#2d2b55")
+
+# ─── HuggingFace Hub model IDs ───
+MODEL_HUB_IDS = {
+    "RoBERTa":    "Paulst7/roberta-mhmisinfo",
+    "MentalBERT": "Paulst7/mentalbert-mhmisinfo",
+}
 
 # ═══════════════════════════════════════════════════════════════════
 # DATA LOADING
@@ -335,10 +345,9 @@ def generate_sample_data():
         "Please don't suffer in silence — help is out there.",
     ]
 
-    # ~500 comments, ~90% YouTube / ~10% Bitchute
     n = 500
     platforms = rng.choice(["Youtube", "Bitchute"], size=n, p=[0.90, 0.10])
-    labels    = [
+    labels = [
         -1 if rng.random() < (0.116 if p == "Youtube" else 0.055) else 0
         for p in platforms
     ]
@@ -398,7 +407,21 @@ def load_data():
     return comments, videos, mode
 
 
-comments_df, videos_df, DATA_MODE = load_data()
+@st.cache_resource(show_spinner="Loading model weights…")
+def load_classifier(model_name: str):
+    hub_id = MODEL_HUB_IDS[model_name]
+    token  = os.environ.get("HF_TOKEN") or None
+    try:
+        if model_name == "RoBERTa":
+            tokenizer = RobertaTokenizer.from_pretrained(hub_id, token=token)
+            model = RobertaForSequenceClassification.from_pretrained(hub_id, token=token)
+        else:
+            tokenizer = AutoTokenizer.from_pretrained(hub_id, token=token)
+            model = AutoModelForSequenceClassification.from_pretrained(hub_id, token=token)
+        model.eval()
+        return tokenizer, model, None
+    except Exception as e:
+        return None, None, str(e)
 
 
 def clean_text(text, max_len=220):
@@ -408,114 +431,28 @@ def clean_text(text, max_len=220):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# SIDEBAR
+# HELPERS — reusable HTML components
 # ═══════════════════════════════════════════════════════════════════
-with st.sidebar:
-    st.markdown("## 🧠 MHMisinfo")
-    st.markdown("Mental Health Misinformation  \nVisual Analytics Dashboard")
-    st.markdown("---")
-
-    st.markdown("### 🤖 Model")
-    selected_model = st.selectbox(
-        "Select classifier",
-        options=list(MODEL_RESULTS.keys()),
-        index=0,
-        help="All model-performance sections update to reflect the selected model.",
-    )
-    m = MODEL_RESULTS[selected_model]
-    badge_cls = "badge-purple" if selected_model == "RoBERTa" else "badge-teal"
-    st.markdown(
-        f'<span class="badge {badge_cls}">{selected_model}</span> '
-        f'<small style="color:#94a3b8">Macro F1 = {m["macro_f1"]:.2f}</small>',
-        unsafe_allow_html=True,
+def kpi_gradient(value, label):
+    return (
+        f'<div class="kpi-gradient">'
+        f'<p class="kpi-value-light">{value}</p>'
+        f'<p class="kpi-label">{label}</p></div>'
     )
 
-    st.markdown("---")
-    st.markdown("### 🔎 Filters")
-    platform_filter = st.multiselect(
-        "Platform",
-        options=["Youtube", "Bitchute"],
-        default=["Youtube", "Bitchute"],
+
+def kpi_solid(value, label):
+    return (
+        f'<div class="kpi-solid">'
+        f'<p class="kpi-value-accent">{value}</p>'
+        f'<p class="kpi-label-dark">{label}</p></div>'
     )
 
-    st.markdown("---")
-    st.markdown("### 📦 Dataset")
-    if DATA_MODE == "full":
-        c_rows, c_mis, c_leg = "135,445", "8,025", "127,420"
-        v_rows, v_mis, v_leg = "739", "120", "619"
-        c_label, v_label = "Gold Comments", "Gold Videos"
-    elif DATA_MODE == "sample":
-        c_rows = f"{len(comments_df):,}"
-        c_mis  = str(int(comments_df['is_misinfo'].sum()))
-        c_leg  = str(int((~comments_df['is_misinfo']).sum()))
-        v_rows = f"{len(videos_df):,}"
-        v_mis  = str(int(videos_df['is_misinfo'].sum()))
-        v_leg  = str(int((~videos_df['is_misinfo']).sum()))
-        c_label, v_label = "Comments (stratified sample)", "Videos (stratified sample)"
-    else:
-        c_rows = f"{len(comments_df):,}"
-        c_mis  = str(int(comments_df['is_misinfo'].sum()))
-        c_leg  = str(int((~comments_df['is_misinfo']).sum()))
-        v_rows = f"{len(videos_df):,}"
-        v_mis  = str(int(videos_df['is_misinfo'].sum()))
-        v_leg  = str(int((~videos_df['is_misinfo']).sum()))
-        c_label, v_label = "Comments (synthetic)", "Videos (synthetic)"
-    st.markdown(
-        f'<div class="info-box"><b>{c_label}</b><br>{c_rows} records'
-        f'<br><span style="color:#94a3b8;font-size:0.82rem">{c_mis} misinfo · {c_leg} legit</span></div>'
-        f'<div class="info-box" style="border-color:#06b6d4;background:rgba(6,182,212,0.08);margin-top:6px">'
-        f'<b>{v_label}</b><br>{v_rows} records'
-        f'<br><span style="color:#94a3b8;font-size:0.82rem">{v_mis} misinfo · {v_leg} legit</span></div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("---")
-    st.caption("PRT840 IT Thesis · CDU · 2026\nPaul S. Flores Sinche (S386377)")
-
-# Apply filters
-fc = comments_df[comments_df["platform"].isin(platform_filter)] if platform_filter else comments_df
-fv = videos_df[videos_df["platform"].isin(platform_filter)]     if platform_filter else videos_df
 
 # ═══════════════════════════════════════════════════════════════════
-# HEADER
+# TAB RENDER FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════
-st.markdown("## AI-Driven Visual Analytics")
-st.markdown(
-    "**Mental Health Misinformation on Social Media** &nbsp;·&nbsp; "
-    "MHMisinfo Dataset &nbsp;·&nbsp; RoBERTa & MentalBERT",
-    unsafe_allow_html=True,
-)
-
-if DATA_MODE == "sample":
-    st.info(
-        "**Stratified sample** — showing a representative 1,000-comment / 200-video sample "
-        "drawn from the real MHMisinfo Gold dataset. Class proportions reflect the full dataset.",
-        icon="📊",
-    )
-elif DATA_MODE == "synthetic":
-    st.warning(
-        "**Demo mode** — sample CSV files were not found. "
-        "Displaying synthetic data for illustration purposes only. "
-        "Run locally with the CSV files present for real statistics.",
-        icon="⚠️",
-    )
-
-st.markdown("---")
-
-# ═══════════════════════════════════════════════════════════════════
-# TABS
-# ═══════════════════════════════════════════════════════════════════
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📊  Overview",
-    "🤖  Model Performance",
-    "🔍  Pattern Analysis",
-    "⚡  Live Classifier",
-])
-
-# ───────────────────────────────────────────────────────────────────
-# TAB 1 — OVERVIEW
-# ───────────────────────────────────────────────────────────────────
-with tab1:
+def render_overview(fc, fv):
     total       = len(fc)
     n_misinfo   = int(fc["is_misinfo"].sum())
     misinfo_pct = n_misinfo / total * 100 if total else 0
@@ -523,33 +460,13 @@ with tab1:
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown(
-            f'<div class="kpi-gradient">'
-            f'<p class="kpi-value-light">{total:,}</p>'
-            f'<p class="kpi-label">Comments Analysed</p></div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown(kpi_gradient(f"{total:,}", "Comments Analysed"), unsafe_allow_html=True)
     with c2:
-        st.markdown(
-            f'<div class="kpi-gradient">'
-            f'<p class="kpi-value-light">{misinfo_pct:.1f}%</p>'
-            f'<p class="kpi-label">Misinformation Rate</p></div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown(kpi_gradient(f"{misinfo_pct:.1f}%", "Misinformation Rate"), unsafe_allow_html=True)
     with c3:
-        st.markdown(
-            f'<div class="kpi-solid">'
-            f'<p class="kpi-value-accent">{n_misinfo:,}</p>'
-            f'<p class="kpi-label-dark">Misinfo Comments</p></div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown(kpi_solid(f"{n_misinfo:,}", "Misinfo Comments"), unsafe_allow_html=True)
     with c4:
-        st.markdown(
-            f'<div class="kpi-solid">'
-            f'<p class="kpi-value-accent">{n_platforms}</p>'
-            f'<p class="kpi-label-dark">Platforms</p></div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown(kpi_solid(str(n_platforms), "Platforms"), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -636,10 +553,8 @@ with tab1:
         fig_v.update_layout(**CHART_LAYOUT, height=260)
         st.plotly_chart(fig_v, use_container_width=True)
 
-# ───────────────────────────────────────────────────────────────────
-# TAB 2 — MODEL PERFORMANCE
-# ───────────────────────────────────────────────────────────────────
-with tab2:
+
+def render_model_tab(selected_model, m, badge_cls):
     other_name = "MentalBERT" if selected_model == "RoBERTa" else "RoBERTa"
     other      = MODEL_RESULTS[other_name]
 
@@ -770,10 +685,8 @@ with tab2:
 </div>
 """, unsafe_allow_html=True)
 
-# ───────────────────────────────────────────────────────────────────
-# TAB 3 — PATTERN ANALYSIS
-# ───────────────────────────────────────────────────────────────────
-with tab3:
+
+def render_pattern_tab(fc):
     st.markdown("#### Misinformation Pattern Analysis")
     total_misinfo_full = 66537
 
@@ -880,25 +793,36 @@ Misinfo 1.2% vs Legit 0.8%<br>
         for t in sample_leg:
             st.markdown(f'<div class="comment-card-teal">{clean_text(t)}</div>', unsafe_allow_html=True)
 
-# ───────────────────────────────────────────────────────────────────
-# TAB 4 — LIVE CLASSIFIER
-# ───────────────────────────────────────────────────────────────────
-with tab4:
+
+def render_classifier_tab(selected_model, m, badge_cls):
+    tokenizer, clf_model, load_error = load_classifier(selected_model)
+    model_ready = tokenizer is not None
+
     st.markdown(f"#### Live Classifier — {selected_model}")
     st.markdown(
         f'<span class="badge {badge_cls}">{selected_model}</span> &nbsp; '
-        f'<code>{m["base"]}</code>',
+        f'<code>{m["base"]}</code> &nbsp;·&nbsp; '
+        f'<small><code>{MODEL_HUB_IDS[selected_model]}</code></small>',
         unsafe_allow_html=True,
     )
     st.markdown("<br>", unsafe_allow_html=True)
 
-    st.markdown(
-        '<div class="warn-box">⚠️ <b>Model weights not loaded.</b> '
-        "The interface is ready — set the model path at the top of "
-        "<code>dashboard_app.py</code> to enable live inference.</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("<br>", unsafe_allow_html=True)
+    if not model_ready:
+        if load_error:
+            st.markdown(
+                f'<div class="warn-box">⚠️ <b>Could not load model from Hub.</b><br>'
+                f'<small style="color:#94a3b8">{load_error}</small><br><br>'
+                f'If the repository is private, set the <code>HF_TOKEN</code> environment variable '
+                f'to a HuggingFace token with read access, then restart the app.</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="warn-box">⚠️ <b>Model not loaded.</b> '
+                'Set the <code>HF_TOKEN</code> environment variable and restart.</div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown("<br>", unsafe_allow_html=True)
 
     user_text = st.text_area(
         "Enter a social media comment to classify:",
@@ -911,41 +835,56 @@ with tab4:
 
     btn_col, info_col = st.columns([1, 4])
     with btn_col:
-        st.button("Classify →", type="primary", disabled=True)
+        classify = st.button(
+            "Classify →",
+            type="primary",
+            disabled=not model_ready or not user_text.strip(),
+        )
     with info_col:
         st.markdown(
-            '<small>Model weights required · Max token length: 128 · '
-            'Classes: Misinformation / Legitimate</small>',
+            f'<small>{"Model loaded ✓" if model_ready else "Model not loaded"} · '
+            'Max token length: 128 · Classes: Misinformation / Legitimate</small>',
             unsafe_allow_html=True,
         )
 
-    st.markdown("---")
-    st.markdown("##### How to enable live inference")
+    if classify and user_text.strip() and model_ready:
+        with st.spinner("Running inference…"):
+            inputs = tokenizer(
+                user_text,
+                return_tensors="pt",
+                truncation=True,
+                max_length=128,
+                padding=True,
+            )
+            with torch.no_grad():
+                logits = clf_model(**inputs).logits
+            probs     = torch.softmax(logits, dim=1)[0]
+            pred      = torch.argmax(logits, dim=1).item()
+            label     = "Misinformation" if pred == 0 else "Legitimate"
+            confidence = probs[pred].item() * 100
 
-    tok_cls   = "RobertaTokenizer, RobertaForSequenceClassification" if selected_model == "RoBERTa" \
-                else "AutoTokenizer, AutoModelForSequenceClassification"
-    tok_name  = "RobertaTokenizer"  if selected_model == "RoBERTa" else "AutoTokenizer"
-    model_cls = "RobertaForSequenceClassification" if selected_model == "RoBERTa" \
-                else "AutoModelForSequenceClassification"
-    path_var  = "ROBERTA_PATH" if selected_model == "RoBERTa" else "MENTALBERT_PATH"
-
-    st.code(
-        f"# 1. Set path to your saved {selected_model} model folder\n"
-        f'{path_var} = r"C:\\path\\to\\your\\saved_model"\n\n'
-        f"# 2. Load tokenizer and model\n"
-        f"from transformers import {tok_cls}\n"
-        f"import torch\n\n"
-        f"tokenizer  = {tok_name}.from_pretrained({path_var})\n"
-        f"clf_model  = {model_cls}.from_pretrained({path_var})\n"
-        f"clf_model.eval()\n\n"
-        f"# 3. Inference\n"
-        f"inputs = tokenizer(user_text, return_tensors='pt', truncation=True, max_length=128)\n"
-        f"with torch.no_grad():\n"
-        f"    logits = clf_model(**inputs).logits\n"
-        f"pred  = torch.argmax(logits, dim=1).item()\n"
-        f"label = 'Misinformation' if pred == 0 else 'Legitimate'",
-        language="python",
-    )
+        if pred == 0:
+            st.markdown(
+                f'<div class="warn-box" style="font-size:1rem">'
+                f'<b>⚠️ {label}</b> &nbsp;·&nbsp; '
+                f'<span style="color:#94a3b8">{selected_model} confidence: '
+                f'<b style="color:#ec4899">{confidence:.1f}%</b></span><br>'
+                f'<small style="color:#94a3b8">'
+                f'Misinfo: {probs[0].item()*100:.1f}% &nbsp;·&nbsp; '
+                f'Legitimate: {probs[1].item()*100:.1f}%</small></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f'<div class="info-box" style="font-size:1rem">'
+                f'<b>✓ {label}</b> &nbsp;·&nbsp; '
+                f'<span style="color:#94a3b8">{selected_model} confidence: '
+                f'<b style="color:#06b6d4">{confidence:.1f}%</b></span><br>'
+                f'<small style="color:#94a3b8">'
+                f'Misinfo: {probs[0].item()*100:.1f}% &nbsp;·&nbsp; '
+                f'Legitimate: {probs[1].item()*100:.1f}%</small></div>',
+                unsafe_allow_html=True,
+            )
 
     st.markdown("---")
     st.markdown(
@@ -956,3 +895,125 @@ with tab4:
         f'(recall) with <b>{int(m["misinfo"]["precision"]*100)}%</b> precision</div>',
         unsafe_allow_html=True,
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# DATA
+# ═══════════════════════════════════════════════════════════════════
+comments_df, videos_df, DATA_MODE = load_data()
+
+# ═══════════════════════════════════════════════════════════════════
+# SIDEBAR
+# ═══════════════════════════════════════════════════════════════════
+with st.sidebar:
+    st.markdown("## 🧠 MHMisinfo")
+    st.markdown("Mental Health Misinformation  \nVisual Analytics Dashboard")
+    st.markdown("---")
+
+    st.markdown("### 🤖 Model")
+    selected_model = st.selectbox(
+        "Select classifier",
+        options=list(MODEL_RESULTS.keys()),
+        index=0,
+        help="All model-performance sections update to reflect the selected model.",
+    )
+    m = MODEL_RESULTS[selected_model]
+    badge_cls = "badge-purple" if selected_model == "RoBERTa" else "badge-teal"
+    st.markdown(
+        f'<span class="badge {badge_cls}">{selected_model}</span> '
+        f'<small style="color:#94a3b8">Macro F1 = {m["macro_f1"]:.2f}</small>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("---")
+    st.markdown("### 🔎 Filters")
+    platform_filter = st.multiselect(
+        "Platform",
+        options=["Youtube", "Bitchute"],
+        default=["Youtube", "Bitchute"],
+    )
+
+    st.markdown("---")
+    st.markdown("### 📦 Dataset")
+    if DATA_MODE == "full":
+        c_rows, c_mis, c_leg = "135,445", "8,025", "127,420"
+        v_rows, v_mis, v_leg = "739", "120", "619"
+        c_label, v_label = "Gold Comments", "Gold Videos"
+    elif DATA_MODE == "sample":
+        c_rows = f"{len(comments_df):,}"
+        c_mis  = str(int(comments_df['is_misinfo'].sum()))
+        c_leg  = str(int((~comments_df['is_misinfo']).sum()))
+        v_rows = f"{len(videos_df):,}"
+        v_mis  = str(int(videos_df['is_misinfo'].sum()))
+        v_leg  = str(int((~videos_df['is_misinfo']).sum()))
+        c_label, v_label = "Comments (stratified sample)", "Videos (stratified sample)"
+    else:
+        c_rows = f"{len(comments_df):,}"
+        c_mis  = str(int(comments_df['is_misinfo'].sum()))
+        c_leg  = str(int((~comments_df['is_misinfo']).sum()))
+        v_rows = f"{len(videos_df):,}"
+        v_mis  = str(int(videos_df['is_misinfo'].sum()))
+        v_leg  = str(int((~videos_df['is_misinfo']).sum()))
+        c_label, v_label = "Comments (synthetic)", "Videos (synthetic)"
+    st.markdown(
+        f'<div class="info-box"><b>{c_label}</b><br>{c_rows} records'
+        f'<br><span style="color:#94a3b8;font-size:0.82rem">{c_mis} misinfo · {c_leg} legit</span></div>'
+        f'<div class="info-box" style="border-color:#06b6d4;background:rgba(6,182,212,0.08);margin-top:6px">'
+        f'<b>{v_label}</b><br>{v_rows} records'
+        f'<br><span style="color:#94a3b8;font-size:0.82rem">{v_mis} misinfo · {v_leg} legit</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("---")
+    st.caption("PRT840 IT Thesis · CDU · 2026\nPaul S. Flores Sinche (S386377)")
+
+# ═══════════════════════════════════════════════════════════════════
+# FILTERS + HEADER
+# ═══════════════════════════════════════════════════════════════════
+fc = comments_df[comments_df["platform"].isin(platform_filter)] if platform_filter else comments_df
+fv = videos_df[videos_df["platform"].isin(platform_filter)]     if platform_filter else videos_df
+
+st.markdown("## AI-Driven Visual Analytics")
+st.markdown(
+    "**Mental Health Misinformation on Social Media** &nbsp;·&nbsp; "
+    "MHMisinfo Dataset &nbsp;·&nbsp; RoBERTa & MentalBERT",
+    unsafe_allow_html=True,
+)
+
+if DATA_MODE == "sample":
+    st.info(
+        "**Stratified sample** — showing a representative 1,000-comment / 200-video sample "
+        "drawn from the real MHMisinfo Gold dataset. Class proportions reflect the full dataset.",
+        icon="📊",
+    )
+elif DATA_MODE == "synthetic":
+    st.warning(
+        "**Demo mode** — sample CSV files were not found. "
+        "Displaying synthetic data for illustration purposes only. "
+        "Run locally with the CSV files present for real statistics.",
+        icon="⚠️",
+    )
+
+st.markdown("---")
+
+# ═══════════════════════════════════════════════════════════════════
+# TABS
+# ═══════════════════════════════════════════════════════════════════
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊  Overview",
+    "🤖  Model Performance",
+    "🔍  Pattern Analysis",
+    "⚡  Live Classifier",
+])
+
+with tab1:
+    render_overview(fc, fv)
+
+with tab2:
+    render_model_tab(selected_model, m, badge_cls)
+
+with tab3:
+    render_pattern_tab(fc)
+
+with tab4:
+    render_classifier_tab(selected_model, m, badge_cls)
